@@ -4,9 +4,6 @@ require "yaml"
 require "colorize"
 require "io/memory"
 
-# TODO: access File.SEPARATOR_STRING ?
-SEPARATOR_STRING = {% if flag?(:windows) %} "\\" {% else %} "/" {% end %}
-
 SUITE_EXTENSION = ".btest"
 
 CONFIG_FN = "btest.yaml"
@@ -14,8 +11,34 @@ CONFIG_FN = "btest.yaml"
 EXIT_CONFIG_MISSING = 1
 EXIT_TEST_PATH_MISSING = 2
 
-MAX_THREADS = 4
+MAX_THREADS = 1
 
+# TODO: access File.SEPARATOR_STRING ?
+SEPARATOR_STRING = {% if flag?(:windows) %} "\\" {% else %} "/" {% end %}
+
+# From https://github.com/crystal-lang/crystal/issues/2061
+module I::Terminal
+  lib C
+    struct Winsize
+      ws_row : UInt16         # rows, in characters */
+      ws_col : UInt16         # columns, in characters */
+      ws_xpixel : UInt16      # horizontal size, pixels
+      ws_ypixel : UInt16      # vertical size, pixels
+    end
+    fun ioctl(fd : Int32, request : UInt32, winsize : C::Winsize*) : Int32
+  end
+
+  def self.get_terminal_size()
+    C.ioctl(0, 21523, out screen_size)      # magic number
+    screen_size
+  end
+end
+
+TERMINAL_WIDTH = I::Terminal.get_terminal_size.ws_col
+
+
+# A runner defines the way that a test case is run. Multiple runners can be
+# used to run the same test case with multiple compilers/assemblers/etc.
 class Runner
   YAML.mapping(
     name: {type: String},
@@ -24,6 +47,8 @@ class Runner
   )
 end
 
+
+# This controls the per-project configuration for btest
 class Config
   YAML.mapping(
     test_path: {type: String, default: "tests"},
@@ -40,19 +65,9 @@ class Config
   end
 end
 
-if !File.exists?(CONFIG_FN)
-  puts "No configuration file found. Create '#{CONFIG_FN}' and try again."
-  Process.exit(EXIT_CONFIG_MISSING)
-end
 
-config = Config.from_yaml(File.read(CONFIG_FN))
-
-if !Dir.exists?(config.test_path)
-  puts "Test path '#{config.test_path}' doesn't exist."
-  Process.exit(EXIT_TEST_PATH_MISSING)
-end
-
-
+# A collection of test cases and the list of runners which those test cases
+# should be run with.
 class Suite
   def initialize(config : Config, path : String)
     @config = config
@@ -121,79 +136,53 @@ class Suite
     path.chomp(SUITE_EXTENSION)
   end
 
-  def run(runner_name : String) : Array(Result)
-    runner = @config.runner(runner_name)
+  # Recursively find *.btest files in the given path
+  def self.find_suites(config : Config, current_path : String = "")
+    current_path = config.test_path if current_path == ""
 
-    ret = [] of Result
+    ret = [] of Suite
 
-    @cases.each do |c|
-      ret << c.run(runner)
+    Dir.entries(current_path).each do |entry|
+      next if entry == "." || entry == ".."
+
+      path = File.join([current_path, entry])
+
+      # Found a test file
+      if path.ends_with?(SUITE_EXTENSION)
+        ret << Suite.new(config, path)
+        next
+      end
+
+      next if !File.directory?(path)
+
+      # Found a directory: search it
+      ret += find_suites(config, path)
     end
 
     ret
   end
-
-  def has_runner?(runner_name : String) : Bool
-    @runners.each do |name|
-      return true if name == runner_name
-    end
-
-    false
-  end
 end
 
 
-class Result
-  def initialize(runner : Runner, testCase : Case, pass : Bool,
-                 message : String)
-    @runner = runner
-    @testCase = testCase
-    @pass = pass
-    @message = message
-  end
-
-  def self.pass(runner : Runner, testCase : Case)
-    Result.new(runner, testCase, true, "")
-  end
-
-  def self.fail(runner : Runner, testCase : Case, command : String,
-                status_code : Int32, stdout : IO, stderr : IO)
-    Result.new(runner, testCase, false,
-            "Error running: #{command}\n" \
-            "Status code: #{status_code}\n" \
-            "Standard output: #{stdout.gets_to_end}\n" \
-            "Standard error: #{stderr.gets_to_end}\n")
-  end
-
-  def testCase
-    @testCase
-  end
-
-  def pass
-    @pass
-  end
-
-  def message
-    @message
-  end
-
-  def render
-    pass = @pass ? "PASS".colorize(:green) : "FAIL".colorize(:red)
-    "#{@testCase.suite.name} - #{@testCase.name} - #{pass}"
-  end
-end
-
-
+# A test case, which takes a list of template arguments and applies those to
+# the suite's template files to setup a test environment ready for a runner to
+# execute and check for results like process status code and stdout.
 class Case
   def initialize(suite : Suite, data)
     @suite = suite
     @name = nil
+    @args = nil
     @expect = Hash(String, String).new
     @arguments = Hash(String, String).new
 
     data.each do |key, value|
       if key == "name"
         @name = value.as(String)
+        next
+      end
+
+      if key == "args"
+        @args = value.as(String)
         next
       end
 
@@ -223,6 +212,10 @@ class Case
     @name
   end
 
+  def args
+    @args
+  end
+
   def expect
     @expect
   end
@@ -239,7 +232,7 @@ class Case
 
     # Delete any previous working directory
     if Dir.exists?(work_path) && \
-      !Process.run("rm -r #{work_path}", nil, shell: true).success?
+      !Process.run("rm -r \"#{work_path}\"", nil, shell: true).success?
       raise Exception.new("Unable to delete work_path (#{work_path})")
     end
 
@@ -254,63 +247,133 @@ class Case
         output = output.gsub("{{ #{key} }}", value)
       end
 
-      File.write(File.join([work_path, fn]), output)
+      File.write(File.join([work_path, fn]), output + "\n")
     end
 
     # Run any pre-test setup
     runner.setup.each do |cmd|
       stdout = IO::Memory.new
       stderr = IO::Memory.new
-      res = Process.run(cmd, nil, shell: true, output: stdout, error: stderr)
+      cmd2 = "cd \"#{work_path}\" && #{cmd}"
+
+      res = Process.run(cmd2, nil, shell: true, output: stdout, error: stderr)
 
       if !res.success?
-        return Result.fail(runner, self, cmd, res.exit_code, stdout, stderr)
+        Result.new(runner, self, false,
+                "Error running: #{cmd2}\n" \
+                "Status code: #{res.exit_code}\n" \
+                "Standard output: #{stdout.to_s}\n" \
+                "Standard error: #{stderr.to_s}\n")
       end
     end
 
     # Run the test case
     stdout = IO::Memory.new
     stderr = IO::Memory.new
-    res = Process.run(runner.run, nil, shell: true, output: stdout,
+    run_cmd = "cd \"#{work_path}\" && #{runner.run}"
+
+    if args
+      run_cmd += " #{args}"
+    end
+
+    res = Process.run(run_cmd, nil, shell: true, output: stdout,
                       error: stderr)
-    if !res.success?
-      return Result.fail(runner, self, runner.run, res.exit_code, stdout,
-                         stderr)
+
+    # Validate the test case
+    validation_errors = ""
+
+    if @expect.has_key?("status")
+      expected_status = @expect["status"]
+      if expected_status != res.exit_code.to_s
+        validation_errors += "Expected status code #{expected_status} " \
+                             "but got #{res.exit_code}\n"
+      end
     end
 
-    Result.pass(runner, self)
+    if @expect.has_key?("stdout")
+      expected_stdout = @expect["stdout"]
+      actual_stdout = stdout.to_s.strip
+      if expected_stdout != actual_stdout
+        validation_errors += "Expected stdout [#{expected_stdout}] " \
+                             "but got [#{actual_stdout}]\n"
+      end
+    end
+
+    if validation_errors.size > 0
+      return Result.new(runner, self, false, validation_errors)
+    end
+
+    Result.new(runner, self, true, "")
   end
 end
 
 
-# Recursively find *.btest files in the given path
-def find_suites(config : Config, current_path : String)
-  ret = [] of Suite
-
-  Dir.entries(current_path).each do |entry|
-    next if entry == "." || entry == ".."
-
-    path = File.join([current_path, entry])
-
-    # Found a test file
-    if path.ends_with?(SUITE_EXTENSION)
-      ret << Suite.new(config, path)
-      next
-    end
-
-    next if !File.directory?(path)
-
-    # Found a directory: search it
-    ret += find_suites(config, path)
+# This is the result of a test case run with a particular runner.
+class Result
+  def initialize(runner : Runner, testCase : Case, pass : Bool,
+                 message : String)
+    @runner = runner
+    @testCase = testCase
+    @pass = pass
+    @message = message
   end
 
-  ret
+  def testCase
+    @testCase
+  end
+
+  def pass
+    @pass
+  end
+
+  def message
+    @message
+  end
+
+  def render
+    ret = "    #{@testCase.name}"
+
+    # Chop the output if the name is too long
+    if ret.size > TERMINAL_WIDTH - 7
+      ret = ret[0..TERMINAL_WIDTH - 7]
+    end
+
+    # Add dots to fill the terminal horizontally
+    (TERMINAL_WIDTH - 6 - ret.size).times do |_|
+      ret += "#{".".colorize(:dark_gray)}"
+    end
+
+    # Add the pass/fail indicator
+    pass = @pass ? "PASS".colorize(:green) : "FAIL".colorize(:red)
+    puts(ret + "[#{pass}]")
+
+    return if @pass
+
+    # Show failure information
+    puts(("      " + @message.gsub("\n", "\n      ")).colorize(:dark_gray))
+  end
 end
 
-suites = find_suites(config, config.test_path)
-config.runners.each do |runner|
-  suites.each do |suite|
-    next if !suite.has_runner?(runner.name)
+
+if !File.exists?(CONFIG_FN)
+  puts "No configuration file found. Create '#{CONFIG_FN}' and try again."
+  Process.exit(EXIT_CONFIG_MISSING)
+end
+
+config = Config.from_yaml(File.read(CONFIG_FN))
+
+if !Dir.exists?(config.test_path)
+  puts "Test path '#{config.test_path}' doesn't exist."
+  Process.exit(EXIT_TEST_PATH_MISSING)
+end
+
+
+Suite.find_suites(config).each do |suite|
+  puts "#{suite.name}".colorize(:white)
+  suite.runners.each do |runner_name|
+    runner = config.runner(runner_name)
+
+    puts "  #{runner.name}".colorize(:dark_gray)
 
     channel = Channel(Result).new
     running = 0
@@ -324,12 +387,12 @@ config.runners.each do |runner|
       proc.call(cs)
       running += 1
       next if running < MAX_THREADS
-      puts channel.receive.render
+      channel.receive.render
       running -= 1
     end
 
     running.times do |_|
-      puts channel.receive.render
+      channel.receive.render
     end
   end
 end
