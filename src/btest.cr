@@ -2,6 +2,7 @@ require "json"
 require "dir"
 require "yaml"
 require "colorize"
+require "option_parser"
 require "io/memory"
 
 SUITE_EXTENSION = ".btest"
@@ -10,8 +11,6 @@ CONFIG_FN = "btest.yaml"
 
 EXIT_CONFIG_MISSING = 1
 EXIT_TEST_PATH_MISSING = 2
-
-MAX_THREADS = 1
 
 # TODO: access File.SEPARATOR_STRING ?
 SEPARATOR_STRING = {% if flag?(:windows) %} "\\" {% else %} "/" {% end %}
@@ -134,6 +133,17 @@ class Suite
     end
 
     path.chomp(SUITE_EXTENSION)
+  end
+
+  # Load a suite by name
+  def self.load_suite(config : Config, name : String)
+    path = File.join([config.test_path, name]) + SUITE_EXTENSION
+
+    if !File.exists?(path)
+      raise Exception.new("Suite not found at #{path}")
+    end
+
+    return Suite.new(config, path)
   end
 
   # Recursively find *.btest files in the given path
@@ -368,7 +378,27 @@ if !Dir.exists?(config.test_path)
 end
 
 
-Suite.find_suites(config).each do |suite|
+arg_threads = 1
+arg_suite = nil
+
+OptionParser.parse! do |parser|
+  parser.banner = "Usage: btest [arguments]"
+  parser.on("-s SUITE", "--suite", "Run only this suite") \
+    { |s| arg_suite = s }
+  parser.on("-j THREADS", "--threads", "Use this many threads") \
+    { |t| arg_threads = t.to_i64 }
+  parser.on("-h", "--help", "Show this help") \
+    { puts parser; Process.exit(0) }
+end
+
+
+if arg_suite
+  suites = [Suite.load_suite(config, arg_suite.as(String))]
+else
+  suites = Suite.find_suites(config)
+end
+
+suites.each do |suite|
   puts "#{suite.name}".colorize(:white)
   suite.runners.each do |runner_name|
     runner = config.runner(runner_name)
@@ -386,7 +416,7 @@ Suite.find_suites(config).each do |suite|
       end
       proc.call(cs)
       running += 1
-      next if running < MAX_THREADS
+      next if running < arg_threads
       channel.receive.render
       running -= 1
     end
