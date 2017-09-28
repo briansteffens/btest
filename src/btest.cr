@@ -238,7 +238,8 @@ class Case
     # Generate the working path for this test run
     # TODO: there are probably more characters that need to be replaced
     name_path = @name.as(String).gsub(" ", "_")
-    work_path = File.join([@suite.config.work_path, @suite.name, name_path])
+    work_path = File.join([@suite.config.work_path, @suite.name, runner.name,
+                           name_path])
 
     # Delete any previous working directory
     if Dir.exists?(work_path) && \
@@ -341,15 +342,24 @@ class Result
   end
 
   def render
-    ret = "    #{@testCase.name}"
+    name = @testCase.name.as(String)
+
+    uncolored_len = @testCase.suite.name.size + 1 + @runner.name.size + 1 + \
+                    name.size
 
     # Chop the output if the name is too long
-    if ret.size > TERMINAL_WIDTH - 7
-      ret = ret[0..TERMINAL_WIDTH - 7]
+    chop_delta = uncolored_len - (TERMINAL_WIDTH - 7)
+    if chop_delta > 0
+      name = name[0..name.size - chop_delta]
+      uncolored_len -= chop_delta
     end
 
+    suite = "#{@testCase.suite.name}".colorize(:white)
+    runner = "#{@runner.name}".colorize(:dark_gray)
+    ret = "#{runner} #{suite} #{name}"
+
     # Add dots to fill the terminal horizontally
-    (TERMINAL_WIDTH - 6 - ret.size).times do |_|
+    (TERMINAL_WIDTH - 7 - uncolored_len).times do |_|
       ret += "#{".".colorize(:dark_gray)}"
     end
 
@@ -402,15 +412,12 @@ suites.sort! do |a, b|
   a.name <=> b.name
 end
 
+channel = Channel(Result).new
+running = 0
+
 suites.each do |suite|
-  puts "#{suite.name}".colorize(:white)
   suite.runners.each do |runner_name|
     runner = config.runner(runner_name)
-
-    puts "  #{runner.name}".colorize(:dark_gray)
-
-    channel = Channel(Result).new
-    running = 0
 
     suite.cases.each do |cs|
       proc = ->(c : Case) do
@@ -418,15 +425,20 @@ suites.each do |suite|
           channel.send(c.run(runner))
         end
       end
+
       proc.call(cs)
       running += 1
+
       next if running < arg_threads
+
+      # Using max threads, wait for one to finish
       channel.receive.render
       running -= 1
     end
-
-    running.times do |_|
-      channel.receive.render
-    end
   end
+end
+
+# Wait for any threads still running
+running.times do |_|
+  channel.receive.render
 end
