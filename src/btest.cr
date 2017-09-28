@@ -398,6 +398,10 @@ else
   suites = Suite.find_suites(config)
 end
 
+suites.sort! do |a, b|
+  a.name <=> b.name
+end
+
 suites.each do |suite|
   puts "#{suite.name}".colorize(:white)
   suite.runners.each do |runner_name|
