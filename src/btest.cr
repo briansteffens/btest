@@ -311,7 +311,9 @@ class Case
     end
 
     if validation_errors.size > 0
-      return Result.new(runner, self, false, validation_errors)
+      return Result.new(runner, self, false,
+                        validation_errors +
+                        "\nstdout: #{stdout}\nstderr: #{stderr}")
     end
 
     Result.new(runner, self, true, "")
