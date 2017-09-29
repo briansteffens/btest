@@ -362,9 +362,11 @@ class Result
     ret = "#{runner} #{suite} #{name}"
 
     # Add dots to fill the terminal horizontally
+    dots = ""
     (TERMINAL_WIDTH - 7 - uncolored_len).times do |_|
-      ret += "#{".".colorize(:dark_gray)}"
+      dots += "."
     end
+    ret += "#{dots.colorize(:dark_gray)}"
 
     # Add the pass/fail indicator
     pass = @pass ? "PASS".colorize(:green) : "FAIL".colorize(:red)
