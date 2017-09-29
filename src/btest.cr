@@ -5,8 +5,6 @@ require "colorize"
 require "option_parser"
 require "io/memory"
 
-SUITE_EXTENSION = ".btest"
-
 CONFIG_FN = "btest.yaml"
 
 EXIT_TESTS_FAILED = 1
@@ -51,6 +49,7 @@ end
 # This controls the per-project configuration for btest
 class Config
   YAML.mapping(
+    suite_extension: {type: String, default: ".yaml"},
     test_path: {type: String, default: "tests"},
     work_path: {type: String, default: ".btest"},
     runners: {type: Array(Runner), default: [] of Runner},
@@ -71,7 +70,7 @@ end
 class Suite
   def initialize(config : Config, path : String)
     @config = config
-    @name = Suite.path_to_name(config.test_path, path)
+    @name = Suite.path_to_name(config, path)
 
     file = YAML.parse(File.read(path))
 
@@ -118,27 +117,28 @@ class Suite
   end
 
   # Convert a path to a btest file into a name for the suite it represents
-  def self.path_to_name(test_base_path, path) : String
-    if !path.starts_with?(test_base_path)
+  def self.path_to_name(config : Config, path) : String
+    if !path.starts_with?(config.test_path)
       raise Exception.new("Test suite not inside the test path")
     end
 
-    path = path[test_base_path.size..-1]
+    path = path[config.test_path.size..-1]
 
     if path.starts_with?(SEPARATOR_STRING)
       path = path[SEPARATOR_STRING.size..-1]
     end
 
-    if !path.ends_with?(SUITE_EXTENSION)
-      raise Exception.new("Test suite file doesn't end in #{SUITE_EXTENSION}")
+    if !path.ends_with?(config.suite_extension)
+      raise Exception.new(
+          "Test suite file doesn't end in #{config.suite_extension}")
     end
 
-    path.chomp(SUITE_EXTENSION)
+    path.chomp(config.suite_extension)
   end
 
   # Load a suite by name
   def self.load_suite(config : Config, name : String)
-    path = File.join([config.test_path, name]) + SUITE_EXTENSION
+    path = File.join([config.test_path, name]) + config.suite_extension
 
     if !File.exists?(path)
       raise Exception.new("Suite not found at #{path}")
@@ -159,7 +159,7 @@ class Suite
       path = File.join([current_path, entry])
 
       # Found a test file
-      if path.ends_with?(SUITE_EXTENSION)
+      if path.ends_with?(config.suite_extension)
         ret << Suite.new(config, path)
         next
       end
