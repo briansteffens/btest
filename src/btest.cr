@@ -9,8 +9,9 @@ SUITE_EXTENSION = ".btest"
 
 CONFIG_FN = "btest.yaml"
 
-EXIT_CONFIG_MISSING = 1
-EXIT_TEST_PATH_MISSING = 2
+EXIT_TESTS_FAILED = 1
+EXIT_CONFIG_MISSING = 2
+EXIT_TEST_PATH_MISSING = 3
 
 # TODO: access File.SEPARATOR_STRING ?
 SEPARATOR_STRING = {% if flag?(:windows) %} "\\" {% else %} "/" {% end %}
@@ -416,6 +417,8 @@ end
 
 channel = Channel(Result).new
 running = 0
+tests_passed = 0
+tests_total = 0
 
 suites.each do |suite|
   suite.runners.each do |runner_name|
@@ -434,7 +437,10 @@ suites.each do |suite|
       next if running < arg_threads
 
       # Using max threads, wait for one to finish
-      channel.receive.render
+      res = channel.receive
+      res.render
+      tests_total += 1
+      tests_passed += 1 if res.pass
       running -= 1
     end
   end
@@ -442,5 +448,12 @@ end
 
 # Wait for any threads still running
 running.times do |_|
-  channel.receive.render
+  res = channel.receive
+  res.render
+  tests_total += 1
+  tests_passed += 1 if res.pass
 end
+
+puts "#{tests_passed}/#{tests_total} tests passed"
+
+Process.exit(EXIT_TESTS_FAILED) if tests_passed != tests_total
