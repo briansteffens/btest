@@ -354,7 +354,7 @@ class Result
     chop_delta = uncolored_len - (TERMINAL_WIDTH - 7)
     if chop_delta > 0
       name = name[0..name.size - chop_delta]
-      uncolored_len -= chop_delta
+      uncolored_len -= chop_delta - 1
     end
 
     suite = "#{@testCase.suite.name}".colorize(:white)
@@ -363,7 +363,7 @@ class Result
 
     # Add dots to fill the terminal horizontally
     dots = ""
-    (TERMINAL_WIDTH - 7 - uncolored_len).times do |_|
+    (TERMINAL_WIDTH - 6 - uncolored_len).times do |_|
       dots += "."
     end
     ret += "#{dots.colorize(:dark_gray)}"
