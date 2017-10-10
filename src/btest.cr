@@ -75,8 +75,16 @@ class Suite
     file = YAML.parse(File.read(path))
 
     @runners = Array(String).new
-    file["runners"].each do |runner|
-      @runners << runner.as_s
+    if file["runners"]?
+      file["runners"].each do |runner|
+        @runners << runner.as_s
+      end
+    end
+
+    if @runners.size == 0
+      config.runners.each do |runner|
+        @runners << runner.name
+      end
     end
 
     @templates = Hash(String, String).new
