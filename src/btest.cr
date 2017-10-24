@@ -72,7 +72,12 @@ class Suite
     @config = config
     @name = Suite.path_to_name(config, path)
 
-    file = YAML.parse(File.read(path))
+    begin
+        file = YAML.parse(File.read(path))
+    rescue ex
+        puts "Error parsing YAML file: #{path}"
+        raise ex
+    end
 
     @runners = Array(String).new
     if file["runners"]?
