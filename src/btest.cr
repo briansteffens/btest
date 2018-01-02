@@ -194,33 +194,33 @@ end
 class Case
   def initialize(suite : Suite, data)
     @suite = suite
-    @name = nil
-    @args = nil
+    @name = ""
+    @args = ""
     @expect = Hash(String, String).new
     @arguments = Hash(String, String).new
 
     data.each do |key, value|
       if key == "name"
-        @name = value.as(String)
+        @name = value.to_s
         next
       end
 
       if key == "args"
-        @args = value.as(String)
+        @args = value.to_s
         next
       end
 
       if key == "status"
-        @expect["status"] = value.as(String)
+        @expect["status"] = value.to_s
         next
       end
 
       if key == "stdout"
-        @expect["stdout"] = value.as(String)
+        @expect["stdout"] = value.to_s
         next
       end
 
-      @arguments[key.as(String)] = value.as(String)
+      @arguments[key.to_s] = value.to_s
     end
 
     if !@name
