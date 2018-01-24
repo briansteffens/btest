@@ -210,13 +210,8 @@ class Case
         next
       end
 
-      if key == "status"
-        @expect["status"] = value.to_s
-        next
-      end
-
-      if key == "stdout"
-        @expect["stdout"] = value.to_s
+      if ["status", "stdout", "stdout_contains"].includes? key
+        @expect[key.to_s] = value.to_s
         next
       end
 
@@ -315,10 +310,18 @@ class Case
       end
     end
 
-    if @expect.has_key?("stdout")
-      expected_stdout = @expect["stdout"]
+    has_stdout = @expect.has_key?("stdout")
+    has_stdout_contains = @expect.has_key?("stdout_contains")
+    check_stdout = has_stdout || has_stdout_contains
+
+    if check_stdout
+      expected_stdout = @expect[has_stdout ? "stdout" : "stdout_contains"]
       actual_stdout = stdout.to_s.strip
-      if expected_stdout != actual_stdout
+
+      pass = has_stdout && expected_stdout == actual_stdout ||
+             has_stdout_contains && actual_stdout.includes? expected_stdout
+
+      unless pass
         validation_errors += "Expected stdout [#{expected_stdout}] " \
                              "but got [#{actual_stdout}]\n"
       end
