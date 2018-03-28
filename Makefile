@@ -1,16 +1,15 @@
-default: src/btest.cr
-	mkdir -p bin
-	crystal build -o bin/btest src/btest.cr
+.PHONY: install uninstall clean
 
-symlink:
-	ln -sf `pwd`/bin/btest /usr/local/bin/btest
+DC=$(shell [ -f dmd ] && dmd || ldc)
+
+bin/btest: src/*.d
+	$(DC) -of $@ $^
 
 install:
-	mkdir -p ${DESTDIR}/usr/local/bin
-	cp bin/btest ${DESTDIR}/usr/local/bin/btest
+	ln -s $(CURDIR)/bin/btest /usr/local/bin/btest
 
 uninstall:
-	rm -f ${DESTDIR}/usr/local/bin/btest
+	rm /usr/local/bin/btest
 
 clean:
 	rm -rf bin
