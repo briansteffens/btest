@@ -4,13 +4,20 @@ btest is a language-agnostic testing framework.
 
 ## Installation
 
-Install D (either dmd or ldc), dub (the D package manager), and install the dyaml package from dub:
+Install D (either dmd or ldc) and dub (the D package manager):
 
-### macOS
+#### macOS
 
 ```bash
 brew install dmd dub
-dub fetch dyaml
+```
+
+### dub
+
+Install the dyaml and mustache-d packages from dub:
+
+```bash
+dub fetch dyaml mustache-d
 ```
 
 ## Use
@@ -69,3 +76,9 @@ templates:
   test.py: |
     4 / {{ denominator }}
 ```
+
+### Run it
+
+```bash
+btest
+``
