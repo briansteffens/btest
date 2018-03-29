@@ -1,9 +1,7 @@
 .PHONY: install uninstall clean
 
-DC=$(shell [ -f dmd ] && dmd || ldc)
-
 bin/btest: src/*.d
-	$(DC) -of $@ $^
+	dub
 
 install:
 	ln -s $(CURDIR)/bin/btest /usr/local/bin/btest

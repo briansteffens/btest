@@ -1,9 +1,12 @@
 import std.file;
 import std.format;
 import std.parallelism;
+import std.stdio;
 
 import mustache;
-import yaml;
+import dyaml;
+
+alias Mustache = MustacheEngine!(string);
 
 const string DEFAULT_TEST_PATH = "tests";
 const string DEFAULT_TMP_ROOT = "/tmp/btest";
@@ -20,6 +23,9 @@ const string CONFIG_PARALLEL_TESTS = "parallelize_tests";
 const string CONFIG_PARALLEL_RUNNERS = "parallelize_runners";
 const string CONFIG_TEST_CASES = "cases";
 const string CONFIG_TEST_TEMPLATES = "templates";
+const string CONFIG_TEST_CASES_STATUS = "status";
+const string CONFIG_TEST_CASES_STDOUT = "stdout";
+const string CONFIG_TEST_CASES_NAME = "name";
 
 bool dbg = true;
 
@@ -34,7 +40,7 @@ Node readConfig(string file) {
 }
 
 class TestCase {
-  string testfile;
+  string testFile;
   string caseName;
   string expectedStatus;
   string expectedStdout;
@@ -50,8 +56,8 @@ class TestCase {
     this.keyValues = keyValues;
     this.templates = templates;
 
-    MustacheEngine!(string) mustache;
-    auto ctx = Mustache.Context;
+    Mustache mustache;
+    auto ctx = new Mustache.Context;
 
     foreach (key, value; keyValues) {
       ctx[key] = value;
@@ -67,7 +73,7 @@ class TestRunner {
   string testRoot;
   string tmpRoot;
   string name;
-  string run;
+  string cmd;
   bool parallelize;
 
   string getTmpDir(string testFile) {
@@ -75,21 +81,21 @@ class TestRunner {
   }
 
   TestCase[] loadCases(string testFile, Node config) {
-    if (CONFIG_TEST_CASES !in testConfig) {
+    if (CONFIG_TEST_CASES !in config) {
       throw new Exception("No cases provided");
     }
-    auto caseConfigs = testConfig[CONFIG_TEST_CASES];
+    auto caseConfigs = config[CONFIG_TEST_CASES];
 
-    if (CONFIG_TEST_TEMPLATES !in testConfig) {
+    if (CONFIG_TEST_TEMPLATES !in config) {
       throw new Exception("No templates provided");
     }
-    auto templates = testConfig[CONFIG_TEST_TEMPLATES];
+    auto templates = config[CONFIG_TEST_TEMPLATES];
 
     TestCase[] cases;
-    foreach (config; caseConfigs) {
+    foreach (Node config; caseConfigs) {
       string[string] keyValues;
       string expectedStatus, expectedStdout, caseName;
-      foreach (key, value; caseConfigs) {
+      foreach (string key, string value; caseConfigs) {
         switch (key) {
         case CONFIG_TEST_CASES_STATUS:
           expectedStatus = value;
@@ -111,16 +117,31 @@ class TestRunner {
     return cases;
   }
 
-  buildTest(string testFile) {
-    auto testConfig = readConfig(testFile);
-    auto dir = this.getTmpDir(testFile);
+  TestCase[] buildTest(string testFile) {
+    auto config = readConfig(testFile);
 
     try {
-      auto cases = this.loadCases(config);
-      return new Test(cases);
-    } catch (e) {
+      return this.loadCases(config);
+    } catch (Exception e) {
       throw new Exception(format("%s in %s", e.toString(), testFile));
     }
+  }
+
+  void run(TestCase[] cases) {
+    auto testDir = this.getTmpDir(cases[0].testFile);
+
+    mkdir(testDir);
+
+    foreach (c; cases) {
+      foreach (file, tmpl; c.templates) {
+        writeToFile(file, tmpl);
+      }
+
+      string stdout, status;
+      execute(this.run, testDir, status, stdout);
+    }
+
+    rmdirRecurse(testDir);
   }
 }
 

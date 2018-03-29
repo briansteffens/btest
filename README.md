@@ -14,10 +14,10 @@ brew install dmd dub
 
 ### dub
 
-Install the dyaml and mustache-d packages from dub:
+Install dep packages:
 
 ```bash
-dub fetch dyaml mustache-d
+dub
 ```
 
 ## Use
