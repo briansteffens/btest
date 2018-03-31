@@ -1,4 +1,6 @@
+import core.atomic;
 import std.algorithm;
+import std.array;
 import std.file;
 import std.format;
 import std.parallelism;
@@ -45,7 +47,7 @@ Node readConfig(string file) {
 }
 
 Node nodeGet(Node node, string key, Node def) {
-  if (node.contains(key)) {
+  if (node.containsKey(key)) {
     return node[key];
   }
 
@@ -75,8 +77,12 @@ class TestCase {
       ctx[key] = value;
     }
 
-    foreach (string fileName, string tmpl; templates) {
-      this.templates[fileName] = mustache.renderString(tmpl, ctx);
+    foreach (Node files; templates) {
+      foreach (string fileName, string tmpl; files) {
+        // Lovely hack to unsafe render everything backwards-compatibly
+        auto unsafe = tmpl.replace("{{", "{{{").replace("}}", "}}}");
+        this.templates[fileName] = mustache.renderString(unsafe, ctx);
+      }
     }
   }
 }
@@ -100,21 +106,22 @@ class TestRunner {
   string getTmpDir(string testFile) {
     int i = 0;
     while (true) {
-      string dir = format("%s%d", buildPath(tmpRoot, testFile), i);
+      string dir = buildPath(format("%s%d", tmpRoot, i), testFile[0 ..  testFile.length - ".yaml".length]);
       if (!exists(dir)) {
-          mkdir(dir);
+          mkdirRecurse(dir);
           return dir;
       }
+      i++;
     }
   }
 
   TestCase[] loadCases(string testFile, Node config) {
-    if (!config.contains(CONFIG_TEST_CASES)) {
+    if (!config.containsKey(CONFIG_TEST_CASES)) {
       throw new Exception("No cases provided");
     }
     auto caseConfigs = config[CONFIG_TEST_CASES];
 
-    if (!config.contains(CONFIG_TEST_TEMPLATES)) {
+    if (!config.containsKey(CONFIG_TEST_TEMPLATES)) {
       throw new Exception("No templates provided");
     }
     auto templates = config[CONFIG_TEST_TEMPLATES];
@@ -124,7 +131,7 @@ class TestRunner {
       string[string] keyValues;
       int expectedStatus;
       string expectedStdout, caseName;
-      foreach (string key, Node value; caseConfigs) {
+      foreach (string key, Node value; config) {
         switch (key) {
         case CONFIG_TEST_CASES_STATUS:
           expectedStatus = value.as!int;
@@ -152,18 +159,22 @@ class TestRunner {
     try {
       return this.loadCases(testFile, config);
     } catch (Exception e) {
-      throw new Exception(format("%s in %s", e.toString(), testFile));
+      e.msg = format("%s in %s", e.msg, testFile);
+      throw e;
     }
   }
 
-  void run(TestCase[] cases) {
+  auto run(TestCase[] cases) {
     auto testDir = this.getTmpDir(cases[0].testFile);
 
-    mkdir(testDir);
+    int passed = 0;
+    int total = 0;
 
-    foreach (i, c; cases) {
+    foreach (c; cases) {
+      total++;
+
       foreach (file, tmpl; c.templates) {
-        std.file.write(file, tmpl);
+        std.file.write(buildPath(testDir, file), tmpl);
       }
 
       auto cwd = getcwd();
@@ -171,48 +182,54 @@ class TestRunner {
       auto process = execute(this.cmd.split(" "));
       chdir(cwd);
 
-      auto passed = true;
+      auto ok = true;
       if (process.status != c.expectedStatus ||
           process.output != c.expectedStdout) {
-        passed = false;
+        ok = false;
       }
 
-      writeln(format("[%s] [Case %d in %s] %s",
-                     passed ? "PASS" : "FAIL",
-                     i,
-                     c.testFile,
+      writeln(c.testFile);
+      writeln(format("[%s] %s",
+                     ok ? "PASS" : "FAIL",
                      c.name));
 
-      if (!passed) {
-        writeln("Expected status code %d but got %s", process.status, c.expectedStatus);
+      if (!ok) {
+        writeln(format("Expected status code %d but got %s", process.status, c.expectedStatus));
         // The only high-level execute function in the D standard library, "execute",
         // mashes stderr and stdout together. Writing a proper "execute" that keeps
         // the streams separate would be a pain. This may do for now.
-        writeln("Expected output [%s] but got [%s]", process.output, c.expectedStdout);
+        writeln(format("Expected output [%s] but got [%s]", process.output, c.expectedStdout));
         write("\n");
         writeln("Output: ", process.output);
+      } else {
+        passed++;
       }
 
       write("\n");
     }
+
+    return Tuple!(int, int)(passed, total);
   }
 
   void cleanup() {
-    foreach (dir; tmpDirs) {
-      if (exists(dir)) {
-        rmdirRecurse(dir);
-      }
+    if (exists(tmpRoot)) {
+      rmdirRecurse(tmpRoot);
     }
   }
 }
 
-void launchRunner(TestRunner runner) {
-  void handleFile(DirEntry d) {
+bool launchRunner(TestRunner runner) {
+  shared int passed = 0;
+  shared int total = 0;
+
+  auto handleFile(DirEntry d) {
     // Weird that extension is not part of DirEntry struct
     if (d.name.endsWith(".yaml")) {
       auto test = runner.buildTest(d);
-      runner.run(test);
-    }    
+      auto t = runner.run(test);
+      atomicOp!("+=")(passed, t[0]);
+      atomicOp!("+=")(total, t[1]);
+    }
   }
 
   try {
@@ -226,21 +243,34 @@ void launchRunner(TestRunner runner) {
         handleFile(d);
       }
     }
+
+    writeln(format("%d of %d tests passed for runner: %s",
+                   passed, total, runner.name));
+    return passed == total;
   } finally {
     runner.cleanup();
   }
 }
 
-void launchRunners(TestRunner[] runners, bool parallelize) {
+int launchRunners(TestRunner[] runners, bool parallelize) {
+  shared int passed = 0;
+
+  void handle(TestRunner runner) {
+    auto allPassed = launchRunner(runner);
+    atomicOp!("+=")(passed, allPassed ? 1 : 0);
+  }
+
   if (parallelize) {
     foreach (runner; parallel(runners)) {
-      launchRunner(runner);
+      handle(runner);
     }
   } else {
     foreach (runner; runners) {
-      launchRunner(runner);
+      handle(runner);
     }
   }
+
+  return passed;
 }
 
 TestRunner[] loadRunners(Node config) {
@@ -264,17 +294,24 @@ TestRunner[] loadRunners(Node config) {
     string name = runnerSetting[CONFIG_RUNNERS_NAME].as!string;
     string run = runnerSetting[CONFIG_RUNNERS_RUN].as!string;
 
-    runners ~= new TestRunner(tmpRoot, testPath, name, run, testsInParallel);
+    runners ~= new TestRunner(testPath, tmpRoot, name, run, testsInParallel);
   }
 
   return runners;
 }
 
-void main(string[] args) {
+int main(string[] args) {
   auto config = readConfig(CONFIG_FILENAME);
   bool runnersInParallel = nodeGet(config,
                                    CONFIG_PARALLEL_RUNNERS,
                                    Node(DEFAULT_PARALLEL_RUNNERS)).as!bool;
   auto runners = loadRunners(config);
-  launchRunners(runners, runnersInParallel);
+  auto passed = launchRunners(runners, runnersInParallel);
+
+  if (passed != runners.length) {
+    writeln("All runners unsuccessful, tests failed.");
+    return 1;
+  }
+
+  return 0;
 }
