@@ -1,7 +1,12 @@
+import std.algorithm;
 import std.file;
 import std.format;
 import std.parallelism;
+import std.path;
+import std.process;
+import std.range;
 import std.stdio;
+import std.typecons;
 
 import mustache;
 import dyaml;
@@ -39,8 +44,8 @@ Node readConfig(string file) {
   return Loader(file).load();
 }
 
-Node nodeGet(Node[string] node, string key, Node def) {
-  if (key in node) {
+Node nodeGet(Node node, string key, Node def) {
+  if (node.contains(key)) {
     return node[key];
   }
 
@@ -49,16 +54,16 @@ Node nodeGet(Node[string] node, string key, Node def) {
 
 class TestCase {
   string testFile;
-  string caseName;
-  string expectedStatus;
+  string name;
+  int expectedStatus;
   string expectedStdout;
   string[string] keyValues;
   string[string] templates;
 
-  this(string testFile, string caseName, string expectedStatus,
+  this(string testFile, string name, int expectedStatus,
        string expectedStdout, string[string] keyValues, Node templates) {
     this.testFile = testFile;
-    this.caseName = caseName;
+    this.name = name;
     this.expectedStatus = expectedStatus;
     this.expectedStdout = expectedStdout;
     this.keyValues = keyValues;
@@ -82,9 +87,25 @@ class TestRunner {
   string name;
   string cmd;
   bool parallelize;
+  string[] tmpDirs;
+
+  this(string testRoot, string tmpRoot, string name, string cmd, bool parallelize) {
+    this.testRoot = testRoot;
+    this.tmpRoot = tmpRoot;
+    this.name = name;
+    this.cmd = cmd;
+    this.parallelize = parallelize;
+  }
 
   string getTmpDir(string testFile) {
-    
+    int i = 0;
+    while (true) {
+      string dir = format("%s%d", buildPath(tmpRoot, testFile), i);
+      if (!exists(dir)) {
+          mkdir(dir);
+          return dir;
+      }
+    }
   }
 
   TestCase[] loadCases(string testFile, Node config) {
@@ -101,20 +122,21 @@ class TestRunner {
     TestCase[] cases;
     foreach (Node config; caseConfigs) {
       string[string] keyValues;
-      string expectedStatus, expectedStdout, caseName;
-      foreach (string key, string value; caseConfigs) {
+      int expectedStatus;
+      string expectedStdout, caseName;
+      foreach (string key, Node value; caseConfigs) {
         switch (key) {
         case CONFIG_TEST_CASES_STATUS:
-          expectedStatus = value;
+          expectedStatus = value.as!int;
           break;
         case CONFIG_TEST_CASES_STDOUT:
-          expectedStdout = value;
+          expectedStdout = value.as!string;
           break;
         case CONFIG_TEST_CASES_NAME:
-          caseName = value;
+          caseName = value.as!string;
           break;
         default:
-          keyValues[key] = value;
+          keyValues[key] = value.as!string;
         }
       }
 
@@ -139,48 +161,98 @@ class TestRunner {
 
     mkdir(testDir);
 
-    foreach (c; cases) {
+    foreach (i, c; cases) {
       foreach (file, tmpl; c.templates) {
         std.file.write(file, tmpl);
       }
 
-      string stdout, status;
-      execute(this.run, testDir, status, stdout);
-    }
+      auto cwd = getcwd();
+      chdir(testDir);
+      auto process = execute(this.cmd.split(" "));
+      chdir(cwd);
 
-    rmdirRecurse(testDir);
+      auto passed = true;
+      if (process.status != c.expectedStatus ||
+          process.output != c.expectedStdout) {
+        passed = false;
+      }
+
+      writeln(format("[%s] [Case %d in %s] %s",
+                     passed ? "PASS" : "FAIL",
+                     i,
+                     c.testFile,
+                     c.name));
+
+      if (!passed) {
+        writeln("Expected status code %d but got %s", process.status, c.expectedStatus);
+        // The only high-level execute function in the D standard library, "execute",
+        // mashes stderr and stdout together. Writing a proper "execute" that keeps
+        // the streams separate would be a pain. This may do for now.
+        writeln("Expected output [%s] but got [%s]", process.output, c.expectedStdout);
+        write("\n");
+        writeln("Output: ", process.output);
+      }
+
+      write("\n");
+    }
+  }
+
+  void cleanup() {
+    foreach (dir; tmpDirs) {
+      if (exists(dir)) {
+        rmdirRecurse(dir);
+      }
+    }
   }
 }
 
 void launchRunner(TestRunner runner) {
-  auto dFiles = dirEntries(runner.testRoot);
-  if (runner.parallelize) {
-    dFiles = parallel(dFiles, 1);
-  }
-
-  foreach (d; dFiles) {
+  void handleFile(DirEntry d) {
     // Weird that extension is not part of DirEntry struct
     if (d.name.endsWith(".yaml")) {
       auto test = runner.buildTest(d);
       runner.run(test);
+    }    
+  }
+
+  try {
+    auto dFiles = dirEntries(runner.testRoot, SpanMode.depth);
+    if (runner.parallelize) {
+      foreach (d; parallel(dFiles)) {
+        handleFile(d);
+      }
+    } else {
+      foreach (d; dFiles) {
+        handleFile(d);
+      }
     }
+  } finally {
+    runner.cleanup();
   }
 }
 
 void launchRunners(TestRunner[] runners, bool parallelize) {
-  foreach (runner; runners) {
-    if (parallelize) {
-      parallel(launchRunner(runner), 1);
-    } else {
+  if (parallelize) {
+    foreach (runner; parallel(runners)) {
+      launchRunner(runner);
+    }
+  } else {
+    foreach (runner; runners) {
       launchRunner(runner);
     }
   }
 }
 
-void loadRunners(Node[string] config) {
-  auto tmpRoot = nodeGet(config, CONFIG_TMP_ROOT, Node(DEFAULT_TMP_ROOT));
-  auto testPath = nodeGet(config, CONFIG_TEST_PATH, Node(DEFAULT_TEST_PATH));
-  auto testsInParallel = nodeGet(config, CONFIG_PARALLEL_TESTS, Node(DEFAULT_PARALLEL_TESTS));
+TestRunner[] loadRunners(Node config) {
+  string tmpRoot = nodeGet(config,
+                           CONFIG_TMP_ROOT,
+                           Node(DEFAULT_TMP_ROOT)).as!string;
+  string testPath = nodeGet(config,
+                            CONFIG_TEST_PATH,
+                            Node(DEFAULT_TEST_PATH)).as!string;
+  auto testsInParallel = nodeGet(config,
+                                 CONFIG_PARALLEL_TESTS,
+                                 Node(DEFAULT_PARALLEL_TESTS)).as!bool;
   auto runnerSettings = nodeGet(config, CONFIG_RUNNERS, Node(cast(Node[])[]));
 
   if (!runnerSettings.length) {
@@ -189,16 +261,20 @@ void loadRunners(Node[string] config) {
 
   TestRunner[] runners;
   foreach (Node runnerSetting; runnerSettings) {
-    auto name = runnerSetting[CONFIG_RUNNERS_NAME];
-    auto run = runnerSetting[CONFIG_RUNNERS_RUN];
+    string name = runnerSetting[CONFIG_RUNNERS_NAME].as!string;
+    string run = runnerSetting[CONFIG_RUNNERS_RUN].as!string;
 
-    runners ~= new TestRunner(testPath, name, run, testsInParallel);
+    runners ~= new TestRunner(tmpRoot, testPath, name, run, testsInParallel);
   }
+
+  return runners;
 }
 
 void main(string[] args) {
   auto config = readConfig(CONFIG_FILENAME);
-  auto runnersInParallel = nodeGet(config, CONFIG_PARALLEL_RUNNERS, Node(DEFAULT_PARALLEL_RUNNERS));
+  bool runnersInParallel = nodeGet(config,
+                                   CONFIG_PARALLEL_RUNNERS,
+                                   Node(DEFAULT_PARALLEL_RUNNERS)).as!bool;
   auto runners = loadRunners(config);
   launchRunners(runners, runnersInParallel);
 }

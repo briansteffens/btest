@@ -1,7 +1,7 @@
 .PHONY: install uninstall clean
 
 bin/btest: src/*.d
-	dub
+	dub build
 
 install:
 	ln -s $(CURDIR)/bin/btest /usr/local/bin/btest

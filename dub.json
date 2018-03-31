@@ -4,5 +4,6 @@
   "dependencies": {
     "dyaml": "~>0.6",
     "mustache-d": "~>0.1"
-  }
+  },
+  "targetPath": "bin"
 }
