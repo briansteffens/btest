@@ -194,11 +194,11 @@ class TestRunner {
                      c.name));
 
       if (!ok) {
-        writeln(format("Expected status code %d but got %s", process.status, c.expectedStatus));
+        writeln(format("Expected status code %d but got %s", c.expectedStatus, process.status));
         // The only high-level execute function in the D standard library, "execute",
         // mashes stderr and stdout together. Writing a proper "execute" that keeps
         // the streams separate would be a pain. This may do for now.
-        writeln(format("Expected output [%s] but got [%s]", process.output, c.expectedStdout));
+        writeln(format("Expected output [%s] but got [%s]", c.expectedStdout, process.output));
         write("\n");
         writeln("Output: ", process.output);
       } else {
