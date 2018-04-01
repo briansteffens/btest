@@ -1,14 +1,12 @@
 require "json"
-require "dir"
 require "yaml"
 require "colorize"
 require "option_parser"
-require "io/memory"
 
 CONFIG_FN = "btest.yaml"
 
-EXIT_TESTS_FAILED = 1
-EXIT_CONFIG_MISSING = 2
+EXIT_TESTS_FAILED      = 1
+EXIT_CONFIG_MISSING    = 2
 EXIT_TEST_PATH_MISSING = 3
 
 # TODO: access File.SEPARATOR_STRING ?
@@ -18,22 +16,22 @@ SEPARATOR_STRING = {% if flag?(:windows) %} "\\" {% else %} "/" {% end %}
 module I::Terminal
   lib C
     struct Winsize
-      ws_row : UInt16         # rows, in characters */
-      ws_col : UInt16         # columns, in characters */
-      ws_xpixel : UInt16      # horizontal size, pixels
-      ws_ypixel : UInt16      # vertical size, pixels
+      ws_row : UInt16    # rows, in characters */
+      ws_col : UInt16    # columns, in characters */
+      ws_xpixel : UInt16 # horizontal size, pixels
+      ws_ypixel : UInt16 # vertical size, pixels
     end
+
     fun ioctl(fd : Int32, request : UInt32, winsize : C::Winsize*) : Int32
   end
 
-  def self.get_terminal_size()
-    C.ioctl(0, 21523, out screen_size)      # magic number
+  def self.get_terminal_size
+    C.ioctl(0, 21523, out screen_size) # magic number
     screen_size
   end
 end
 
 TERMINAL_WIDTH = I::Terminal.get_terminal_size.ws_col
-
 
 # A runner defines the way that a test case is run. Multiple runners can be
 # used to run the same test case with multiple compilers/assemblers/etc.
@@ -44,7 +42,6 @@ class Runner
     run: {type: String},
   )
 end
-
 
 # This controls the per-project configuration for btest
 class Config
@@ -64,19 +61,21 @@ class Config
   end
 end
 
-
 # A collection of test cases and the list of runners which those test cases
 # should be run with.
 class Suite
-  def initialize(config : Config, path : String)
-    @config = config
+  getter config, path, name, cases, runners, templates
+
+  def initialize(@config : Config, path : String)
     @name = Suite.path_to_name(config, path)
 
     begin
-        file = YAML.parse(File.read(path))
+      File.open(path) do |f|
+        file = YAML.parse(f)
+      end
     rescue ex
-        puts "Error parsing YAML file: #{path}"
-        raise ex
+      puts "Error parsing YAML file: #{path}"
+      raise ex
     end
 
     @runners = Array(String).new
@@ -105,30 +104,6 @@ class Suite
     end
   end
 
-  def config
-    @config
-  end
-
-  def path
-    @path
-  end
-
-  def name
-    @name
-  end
-
-  def cases
-    @cases
-  end
-
-  def runners
-    @runners
-  end
-
-  def templates
-    @templates
-  end
-
   # Convert a path to a btest file into a name for the suite it represents
   def self.path_to_name(config : Config, path) : String
     if !path.starts_with?(config.test_path)
@@ -143,7 +118,7 @@ class Suite
 
     if !path.ends_with?(config.suite_extension)
       raise Exception.new(
-          "Test suite file doesn't end in #{config.suite_extension}")
+        "Test suite file doesn't end in #{config.suite_extension}")
     end
 
     path.chomp(config.suite_extension)
@@ -187,13 +162,13 @@ class Suite
   end
 end
 
-
 # A test case, which takes a list of template arguments and applies those to
 # the suite's template files to setup a test environment ready for a runner to
 # execute and check for results like process status code and stdout.
 class Case
-  def initialize(suite : Suite, data)
-    @suite = suite
+  getter suite, name, args, expect, arguments
+
+  def initialize(@suite : Suite, data)
     @name = ""
     @args = ""
     @expect = Hash(String, String).new
@@ -210,7 +185,7 @@ class Case
         next
       end
 
-      if ["status", "stdout", "stdout_contains"].includes? key
+      if {"status", "stdout", "stdout_contains"}.includes? key
         @expect[key.to_s] = value.to_s
         next
       end
@@ -218,29 +193,7 @@ class Case
       @arguments[key.to_s] = value.to_s
     end
 
-    if !@name
-      raise Exception.new("Each test case requires a name")
-    end
-  end
-
-  def suite
-    @suite
-  end
-
-  def name
-    @name
-  end
-
-  def args
-    @args
-  end
-
-  def expect
-    @expect
-  end
-
-  def arguments
-    @arguments
+    raise Exception.new("Each test case requires a name") if !@name
   end
 
   def run(runner : Runner) : Result
@@ -252,7 +205,7 @@ class Case
 
     # Delete any previous working directory
     if Dir.exists?(work_path) && \
-      !Process.run("rm -r \"#{work_path}\"", nil, shell: true).success?
+          !Process.run("rm -r \"#{work_path}\"", nil, shell: true).success?
       raise Exception.new("Unable to delete work_path (#{work_path})")
     end
 
@@ -278,12 +231,14 @@ class Case
 
       res = Process.run(cmd2, nil, shell: true, output: stdout, error: stderr)
 
-      if !res.success?
-        Result.new(runner, self, false,
-                "Error running: #{cmd2}\n" \
-                "Status code: #{res.exit_code}\n" \
-                "Standard output: #{stdout.to_s}\n" \
-                "Standard error: #{stderr.to_s}\n")
+      unless res.success?
+        Result.new(runner, self, false, <<-OUTPUT
+          Error running: #{cmd2}
+          Status code: #{res.exit_code}
+          Standard output: #{stdout.to_s}
+          Standard error: #{stderr.to_s}
+          OUTPUT
+        )
       end
     end
 
@@ -292,14 +247,11 @@ class Case
     stderr = IO::Memory.new
     run_cmd = "cd \"#{work_path}\" && #{runner.run}"
 
-    if args
-      run_cmd += " #{args}"
-    end
+    run_cmd += " #{args}" if args
 
     res = Process.run(run_cmd, nil, shell: true, output: stdout,
-                      error: stderr)
+      error: stderr)
 
-    # Validate the test case
     validation_errors = ""
 
     if @expect.has_key?("status")
@@ -329,72 +281,55 @@ class Case
 
     if validation_errors.size > 0
       return Result.new(runner, self, false,
-                        validation_errors +
-                        "\nstdout: #{stdout}\nstderr: #{stderr}")
+        validation_errors + "\nstdout: #{stdout}\nstderr: #{stderr}")
     end
 
     Result.new(runner, self, true, "")
   end
 end
 
-
 # This is the result of a test case run with a particular runner.
 class Result
-  def initialize(runner : Runner, testCase : Case, pass : Bool,
-                 message : String)
-    @runner = runner
-    @testCase = testCase
-    @pass = pass
-    @message = message
-  end
+  getter testCase, pass, message
 
-  def testCase
-    @testCase
-  end
-
-  def pass
-    @pass
-  end
-
-  def message
-    @message
+  def initialize(@runner : Runner, @testCase : Case, @pass : Bool,
+                 @message : String)
   end
 
   def render
     name = @testCase.name.as(String)
 
     uncolored_len = @testCase.suite.name.size + 1 + @runner.name.size + 1 + \
-                    name.size
+      name.size
 
-    # Chop the output if the name is too long
-    chop_delta = uncolored_len - (TERMINAL_WIDTH - 7)
-    if chop_delta > 0
-      name = name[0..name.size - chop_delta]
-      uncolored_len -= chop_delta - 1
-    end
+  # Chop the output if the name is too long
+  chop_delta = uncolored_len - (TERMINAL_WIDTH - 7)
+  if chop_delta > 0
+    name = name[0..name.size - chop_delta]
+    uncolored_len -= chop_delta - 1
+  end
 
-    suite = "#{@testCase.suite.name}".colorize(:white)
-    runner = "#{@runner.name}".colorize(:dark_gray)
-    ret = "#{runner} #{suite} #{name}"
+  suite = @testCase.suite.name.colorize(:white)
+  runner = @runner.name.colorize(:dark_gray)
+  ret = "#{runner} #{suite} #{name}"
 
-    # Add dots to fill the terminal horizontally
-    dots = ""
-    (TERMINAL_WIDTH - 6 - uncolored_len).times do |_|
-      dots += "."
-    end
-    ret += "#{dots.colorize(:dark_gray)}"
+  # Add dots to fill the terminal horizontally
+  dots = ""
+  (TERMINAL_WIDTH - 6 - uncolored_len).times do |_|
+    dots += "."
+  end
+  ret += "#{dots.colorize(:dark_gray)}"
 
-    # Add the pass/fail indicator
-    pass = @pass ? "PASS".colorize(:green) : "FAIL".colorize(:red)
-    puts(ret + "[#{pass}]")
+  # Add the pass/fail indicator
+  pass = @pass ? "PASS".colorize(:green) : "FAIL".colorize(:red)
+  puts(ret + "[#{pass}]")
 
-    return if @pass
+  return if @pass
 
-    # Show failure information
-    puts(("      " + @message.gsub("\n", "\n      ")).colorize(:dark_gray))
+  # Show failure information
+  puts(("      " + @message.gsub("\n", "\n      ")).colorize(:dark_gray))
   end
 end
-
 
 if !File.exists?(CONFIG_FN)
   puts "No configuration file found. Create '#{CONFIG_FN}' and try again."
@@ -408,20 +343,21 @@ if !Dir.exists?(config.test_path)
   Process.exit(EXIT_TEST_PATH_MISSING)
 end
 
-
 arg_threads = 1
 arg_suite = nil
 
 OptionParser.parse! do |parser|
   parser.banner = "Usage: btest [arguments]"
-  parser.on("-s SUITE", "--suite", "Run only this suite") \
-    { |s| arg_suite = s }
-  parser.on("-j THREADS", "--threads", "Use this many threads") \
-    { |t| arg_threads = t.to_i64 }
-  parser.on("-h", "--help", "Show this help") \
-    { puts parser; Process.exit(0) }
+  parser.on("-s SUITE", "--suite", "Run only this suite") do |s|
+    arg_suite = s
+  end
+  parser.on("-j THREADS", "--threads", "Use this many threads") do |t|
+    arg_threads = t.to_i64
+  end
+  parser.on("-h", "--help", "Show this help") do
+    puts parser; Process.exit(0)
+  end
 end
-
 
 if arg_suite
   suites = [Suite.load_suite(config, arg_suite.as(String))]
