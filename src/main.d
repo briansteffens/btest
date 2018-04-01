@@ -172,22 +172,18 @@ private class TestRunner {
         std.file.write(buildPath(testDir, file), tmpl);
       }
 
-      auto cwd = getcwd();
-      chdir(testDir);
-
       auto ok = true;
       Tuple!(int,"status",string,"output") process;
 
       foreach (setupStep; this.setup) {
-        process = execute(setupStep.split(" "));
+        process = execute(setupStep.split(" "), null, Config.none, size_t.max, testDir);
         if (process.status) {
           ok = false;
         }
       }
 
       if (ok) {
-        process = execute(this.cmd.split(" "));
-        chdir(cwd);
+        process = execute(this.cmd.split(" "), null, Config.none, size_t.max, testDir);
 
         if (process.status != c.expectedStatus ||
             process.output != c.expectedStdout) {
