@@ -233,11 +233,11 @@ class Case
 
       unless res.success?
         Result.new(runner, self, false, <<-OUTPUT
-        Error running: #{cmd2}
-        Status code: #{res.exit_code}
-        Standard output: #{stdout.to_s}
-        Standard error: #{stderr.to_s}
-        OUTPUT
+          Error running: #{cmd2}
+          Status code: #{res.exit_code}
+          Standard output: #{stdout.to_s}
+          Standard error: #{stderr.to_s}
+          OUTPUT
         )
       end
     end
