@@ -34,14 +34,6 @@ const string CONFIG_TEST_CASES_STATUS = "status";
 const string CONFIG_TEST_CASES_STDOUT = "stdout";
 const string CONFIG_TEST_CASES_NAME = "name";
 
-bool dbg = true;
-
-void debugPrint(string p) {
-  if (dbg) {
-    writeln(p);
-  }
-}
-
 Node readConfig(string file) {
   return Loader(file).load();
 }
