@@ -15,30 +15,30 @@ import dyaml;
 
 alias Mustache = MustacheEngine!(string);
 
-const string DEFAULT_TEST_PATH = "tests";
-const string DEFAULT_TMP_ROOT = "/tmp/btest";
-const bool DEFAULT_PARALLEL_RUNNERS = true;
-const bool DEFAULT_PARALLEL_TESTS = true;
+private const string DEFAULT_TEST_PATH = "tests";
+private const string DEFAULT_TMP_ROOT = "/tmp/btest";
+private const bool DEFAULT_PARALLEL_RUNNERS = true;
+private const bool DEFAULT_PARALLEL_TESTS = true;
 
-const string CONFIG_FILENAME = "btest.yaml";
-const string CONFIG_TEST_PATH = "test_path";
-const string CONFIG_TMP_ROOT = "tmp_root";
-const string CONFIG_RUNNERS = "runners";
-const string CONFIG_RUNNERS_NAME = "name";
-const string CONFIG_RUNNERS_RUN = "run";
-const string CONFIG_PARALLEL_TESTS = "parallelize_tests";
-const string CONFIG_PARALLEL_RUNNERS = "parallelize_runners";
-const string CONFIG_TEST_CASES = "cases";
-const string CONFIG_TEST_TEMPLATES = "templates";
-const string CONFIG_TEST_CASES_STATUS = "status";
-const string CONFIG_TEST_CASES_STDOUT = "stdout";
-const string CONFIG_TEST_CASES_NAME = "name";
+private const string CONFIG_FILENAME = "btest.yaml";
+private const string CONFIG_TEST_PATH = "test_path";
+private const string CONFIG_TMP_ROOT = "tmp_root";
+private const string CONFIG_RUNNERS = "runners";
+private const string CONFIG_RUNNERS_NAME = "name";
+private const string CONFIG_RUNNERS_RUN = "run";
+private const string CONFIG_PARALLEL_TESTS = "parallelize_tests";
+private const string CONFIG_PARALLEL_RUNNERS = "parallelize_runners";
+private const string CONFIG_TEST_CASES = "cases";
+private const string CONFIG_TEST_TEMPLATES = "templates";
+private const string CONFIG_TEST_CASES_STATUS = "status";
+private const string CONFIG_TEST_CASES_STDOUT = "stdout";
+private const string CONFIG_TEST_CASES_NAME = "name";
 
-Node readConfig(string file) {
+private Node readConfig(string file) {
   return Loader(file).load();
 }
 
-Node nodeGet(Node node, string key, Node def) {
+private Node nodeGet(Node node, string key, Node def) {
   if (node.containsKey(key)) {
     return node[key];
   }
@@ -46,7 +46,7 @@ Node nodeGet(Node node, string key, Node def) {
   return def;
 }
 
-class TestCase {
+private class TestCase {
   string testFile;
   string name;
   int expectedStatus;
@@ -79,7 +79,7 @@ class TestCase {
   }
 }
 
-class TestRunner {
+private class TestRunner {
   string testRoot;
   string tmpRoot;
   string name;
@@ -95,8 +95,8 @@ class TestRunner {
     this.parallelize = parallelize;
   }
 
-  string getTmpDir(string testFile) {
-    int i = 0;
+  private string getTmpDir(string testFile) {
+    int i;
     while (true) {
       string dir = buildPath(format("%s%d", tmpRoot, i), testFile[0 ..  testFile.length - ".yaml".length]);
       if (!exists(dir)) {
@@ -159,8 +159,8 @@ class TestRunner {
   auto run(TestCase[] cases) {
     auto testDir = this.getTmpDir(cases[0].testFile);
 
-    int passed = 0;
-    int total = 0;
+    int passed;
+    int total;
 
     foreach (c; cases) {
       total++;
@@ -210,11 +210,11 @@ class TestRunner {
   }
 }
 
-bool launchRunner(TestRunner runner) {
-  shared int passed = 0;
-  shared int total = 0;
+private bool launchRunner(TestRunner runner) {
+  shared int passed;
+  shared int total;
 
-  auto handleFile(DirEntry d) {
+  void handleFile(DirEntry d) {
     // Weird that extension is not part of DirEntry struct
     if (d.name.endsWith(".yaml")) {
       auto test = runner.buildTest(d);
@@ -244,8 +244,8 @@ bool launchRunner(TestRunner runner) {
   }
 }
 
-int launchRunners(TestRunner[] runners, bool parallelize) {
-  shared int passed = 0;
+private int launchRunners(TestRunner[] runners, bool parallelize) {
+  shared int passed;
 
   void handle(TestRunner runner) {
     auto allPassed = launchRunner(runner);
@@ -265,7 +265,7 @@ int launchRunners(TestRunner[] runners, bool parallelize) {
   return passed;
 }
 
-TestRunner[] loadRunners(Node config) {
+private TestRunner[] loadRunners(Node config) {
   string tmpRoot = nodeGet(config,
                            CONFIG_TMP_ROOT,
                            Node(DEFAULT_TMP_ROOT)).as!string;
@@ -292,13 +292,13 @@ TestRunner[] loadRunners(Node config) {
   return runners;
 }
 
-int main(string[] args) {
+int main() {
   auto config = readConfig(CONFIG_FILENAME);
-  bool runnersInParallel = nodeGet(config,
-                                   CONFIG_PARALLEL_RUNNERS,
-                                   Node(DEFAULT_PARALLEL_RUNNERS)).as!bool;
+  const bool runnersInParallel = nodeGet(config,
+                                         CONFIG_PARALLEL_RUNNERS,
+                                         Node(DEFAULT_PARALLEL_RUNNERS)).as!bool;
   auto runners = loadRunners(config);
-  auto passed = launchRunners(runners, runnersInParallel);
+  const auto passed = launchRunners(runners, runnersInParallel);
 
   if (passed != runners.length) {
     writeln("All runners unsuccessful, tests failed.");
