@@ -25,6 +25,7 @@ private const string CONFIG_TEST_PATH = "test_path";
 private const string CONFIG_TMP_ROOT = "tmp_root";
 private const string CONFIG_RUNNERS = "runners";
 private const string CONFIG_RUNNERS_NAME = "name";
+private const string CONFIG_RUNNERS_SETUP = "setup";
 private const string CONFIG_RUNNERS_RUN = "run";
 private const string CONFIG_PARALLEL_TESTS = "parallelize_tests";
 private const string CONFIG_PARALLEL_RUNNERS = "parallelize_runners";
@@ -83,14 +84,16 @@ private class TestRunner {
   string testRoot;
   string tmpRoot;
   string name;
+  string[] setup;
   string cmd;
   bool parallelize;
   string[] tmpDirs;
 
-  this(string testRoot, string tmpRoot, string name, string cmd, bool parallelize) {
+  this(string testRoot, string tmpRoot, string name, string[] setup, string cmd, bool parallelize) {
     this.testRoot = testRoot;
     this.tmpRoot = tmpRoot;
     this.name = name;
+    this.setup = setup;
     this.cmd = cmd;
     this.parallelize = parallelize;
   }
@@ -171,13 +174,25 @@ private class TestRunner {
 
       auto cwd = getcwd();
       chdir(testDir);
-      auto process = execute(this.cmd.split(" "));
-      chdir(cwd);
 
       auto ok = true;
-      if (process.status != c.expectedStatus ||
-          process.output != c.expectedStdout) {
-        ok = false;
+      Tuple!(int,"status",string,"output") process;
+
+      foreach (setupStep; this.setup) {
+        process = execute(setupStep.split(" "));
+        if (process.status) {
+          ok = false;
+        }
+      }
+
+      if (ok) {
+        process = execute(this.cmd.split(" "));
+        chdir(cwd);
+
+        if (process.status != c.expectedStatus ||
+            process.output != c.expectedStdout) {
+          ok = false;
+        }
       }
 
       writeln(c.testFile);
@@ -284,9 +299,17 @@ private TestRunner[] loadRunners(Node config) {
   TestRunner[] runners;
   foreach (Node runnerSetting; runnerSettings) {
     string name = runnerSetting[CONFIG_RUNNERS_NAME].as!string;
+
+    string[] setup;
+    if (runnerSetting.containsKey(CONFIG_RUNNERS_SETUP)) {
+      foreach (string setupStep; runnerSetting[CONFIG_RUNNERS_SETUP]) {
+        setup ~= setupStep;
+      }
+    }
+
     string run = runnerSetting[CONFIG_RUNNERS_RUN].as!string;
 
-    runners ~= new TestRunner(testPath, tmpRoot, name, run, testsInParallel);
+    runners ~= new TestRunner(testPath, tmpRoot, name, setup, run, testsInParallel);
   }
 
   return runners;
