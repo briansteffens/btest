@@ -284,6 +284,7 @@ class Case
   end
 end
 
+# This is the result of a test case run with a particular runner.
 class Result
   getter testCase, pass, message
 
