@@ -70,7 +70,9 @@ class Suite
     @name = Suite.path_to_name(config, path)
 
     begin
-      file = YAML.parse(File.read(path))
+      File.open(path) do |f|
+        file = YAML.parse(f)
+      end
     rescue ex
       puts "Error parsing YAML file: #{path}"
       raise ex
@@ -183,7 +185,7 @@ class Case
         next
       end
 
-      if ["status", "stdout", "stdout_contains"].includes? key
+      if {"status", "stdout", "stdout_contains"}.includes? key
         @expect[key.to_s] = value.to_s
         next
       end
@@ -229,12 +231,14 @@ class Case
 
       res = Process.run(cmd2, nil, shell: true, output: stdout, error: stderr)
 
-      if !res.success?
-        Result.new(runner, self, false,
-          "Error running: #{cmd2}\n" \
-          "Status code: #{res.exit_code}\n" \
-          "Standard output: #{stdout.to_s}\n" \
-          "Standard error: #{stderr.to_s}\n")
+      unless res.success?
+        Result.new(runner, self, false, <<-OUTPUT
+        Error running: #{cmd2}
+        Status code: #{res.exit_code}
+        Standard output: #{stdout.to_s}
+        Standard error: #{stderr.to_s}
+        OUTPUT
+        )
       end
     end
 
@@ -305,8 +309,8 @@ class Result
     uncolored_len -= chop_delta - 1
   end
 
-  suite = "#{@testCase.suite.name}".colorize(:white)
-  runner = "#{@runner.name}".colorize(:dark_gray)
+  suite = @testCase.suite.name.colorize(:white)
+  runner = @runner.name.colorize(:dark_gray)
   ret = "#{runner} #{suite} #{name}"
 
   # Add dots to fill the terminal horizontally
@@ -344,15 +348,15 @@ arg_suite = nil
 
 OptionParser.parse! do |parser|
   parser.banner = "Usage: btest [arguments]"
-  parser.on("-s SUITE", "--suite", "Run only this suite") { |s|
+  parser.on("-s SUITE", "--suite", "Run only this suite") do |s|
     arg_suite = s
-  }
-  parser.on("-j THREADS", "--threads", "Use this many threads") { |t|
+  end
+  parser.on("-j THREADS", "--threads", "Use this many threads") do |t|
     arg_threads = t.to_i64
-  }
-  parser.on("-h", "--help", "Show this help") {
+  end
+  parser.on("-h", "--help", "Show this help") do
     puts parser; Process.exit(0)
-  }
+  end
 end
 
 if arg_suite
