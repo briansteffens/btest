@@ -213,10 +213,13 @@ private class TestRunner {
       if (ok) {
         process = exec(this.cmd, testDir);
 
-        if (process.status != c.expectedStatus ||
-            process.output != c.expectedStdout ||
-            !process.output.canFind(c.expectedStdoutContains)) {
-          ok = false;
+        ok = ok && process.status == c.expectedStatus;
+        if (c.expectedStdout) {
+          ok = ok && process.output == c.expectedStdout;
+        }
+
+        if (c.expectedStdoutContains) {
+          ok = ok && process.output.canFind(c.expectedStdoutContains);
         }
       }
 
