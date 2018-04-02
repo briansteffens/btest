@@ -102,10 +102,13 @@ private class TestRunner {
   private string getTmpDir(string testFile) {
     int i;
     while (true) {
-      string dir = buildPath(format("%s%d", tmpRoot, i), testFile[0 ..  testFile.length - ".yaml".length]);
-      if (!exists(dir)) {
-          mkdirRecurse(dir);
-          return dir;
+      string fileWithoutExt = testFile[0 ..  testFile.length - ".yaml".length];
+      string tmpRoot = buildPath(tmpRoot, format("%d", i));
+      string dir = buildPath(tmpRoot, name, fileWithoutExt);
+      if (!exists(tmpRoot)) {
+        tmpDirs ~= dir;
+        mkdirRecurse(dir);
+        return dir;
       }
       i++;
     }
@@ -191,7 +194,6 @@ private class TestRunner {
       Tuple!(int,"status",string,"output") process;
 
       foreach (setupStep; this.setup) {
-        writeln("Running setup step ", setupStep);
         process = execute(setupStep.split(" "), null, Config.none, size_t.max, testDir);
         if (process.status) {
           ok = false;
@@ -199,7 +201,6 @@ private class TestRunner {
       }
 
       if (ok) {
-        writeln(execute(["ls", "-la"], null, Config.none, size_t.max, testDir));
         process = execute(this.cmd.split(" "), null, Config.none, size_t.max, testDir);
 
         if (process.status != c.expectedStatus ||
@@ -232,8 +233,10 @@ private class TestRunner {
   }
 
   void cleanup() {
-    if (exists(tmpRoot)) {
-      rmdirRecurse(tmpRoot);
+    foreach (dir; tmpDirs) {
+      if (exists(dir)) {
+        rmdirRecurse(dir);
+      }
     }
   }
 }
