@@ -224,7 +224,7 @@ private class TestRunner {
       }
 
       if (ok) {
-        process = exec(this.cmd ~ c.argsToPass.join(" "), testDir);
+        process = exec(([this.cmd] ~ c.argsToPass).join(" "), testDir);
 
         if (c.expectedStatus != -1) {
           ok = ok && process.status == c.expectedStatus;
