@@ -1,6 +1,6 @@
 default: src/btest.cr
 	mkdir -p bin
-	crystal build -o bin/btest src/btest.cr
+	crystal build -o bin/btest src/btest.cr --release --no-debug
 
 symlink:
 	ln -sf `pwd`/bin/btest /usr/local/bin/btest
