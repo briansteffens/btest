@@ -199,6 +199,7 @@ private class TestRunner {
       }
 
       if (ok) {
+        writeln(execute(["ls", "-la"], null, Config.none, size_t.max, testDir));
         process = execute(this.cmd.split(" "), null, Config.none, size_t.max, testDir);
 
         if (process.status != c.expectedStatus ||
