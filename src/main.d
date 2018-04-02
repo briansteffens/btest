@@ -135,7 +135,7 @@ private class TestRunner {
     TestCase[] cases;
     foreach (Node config; caseConfigs) {
       string[string] keyValues;
-      int expectedStatus;
+      int expectedStatus = -1;
       string expectedStdout, expectedStdoutContains, caseName;
       foreach (string key, Node value; config) {
         switch (key) {
@@ -213,7 +213,10 @@ private class TestRunner {
       if (ok) {
         process = exec(this.cmd, testDir);
 
-        ok = ok && process.status == c.expectedStatus;
+        if (c.expectedStatus != -1) {
+          ok = ok && process.status == c.expectedStatus;
+        }
+
         if (c.expectedStdout) {
           ok = ok && process.output == c.expectedStdout;
         }
