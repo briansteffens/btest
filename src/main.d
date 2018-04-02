@@ -48,8 +48,8 @@ private Node nodeGet(Node node, string key, Node def) {
   return def;
 }
 
-auto exec(string[] cmdAndArgs, string dir) {
-  return execute(cmdAndArgs, null, Config.none, size_t.max, dir);
+auto exec(string cmdAndArgs, string dir) {
+  return executeShell(cmdAndArgs, null, Config.none, ulong.max, dir);
 }
 
 private class TestCase {
@@ -198,15 +198,14 @@ private class TestRunner {
       Tuple!(int,"status",string,"output") process;
 
       foreach (setupStep; this.setup) {
-        process = exec(setupStep.split(" "), testDir);
+        process = exec(setupStep, testDir);
         if (process.status) {
           ok = false;
         }
       }
 
       if (ok) {
-        writeln(exec(["ls", "-la"], testDir).output);
-        process = exec(this.cmd.split(" "), testDir);
+        process = exec(this.cmd, testDir);
 
         if (process.status != c.expectedStatus ||
             process.output != c.expectedStdout) {
