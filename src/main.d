@@ -191,6 +191,7 @@ private class TestRunner {
       Tuple!(int,"status",string,"output") process;
 
       foreach (setupStep; this.setup) {
+        writeln("Running setup step ", setupStep);
         process = execute(setupStep.split(" "), null, Config.none, size_t.max, testDir);
         if (process.status) {
           ok = false;
