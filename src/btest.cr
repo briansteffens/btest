@@ -302,32 +302,32 @@ class Result
     uncolored_len = @testCase.suite.name.size + 1 + @runner.name.size + 1 + \
       name.size
 
-  # Chop the output if the name is too long
-  chop_delta = uncolored_len - (TERMINAL_WIDTH - 7)
-  if chop_delta > 0
-    name = name[0..name.size - chop_delta]
-    uncolored_len -= chop_delta - 1
-  end
+    # Chop the output if the name is too long
+    chop_delta = uncolored_len - (TERMINAL_WIDTH - 7)
+    if chop_delta > 0
+      name = name[0..name.size - chop_delta]
+      uncolored_len -= chop_delta - 1
+    end
 
-  suite = @testCase.suite.name.colorize(:white)
-  runner = @runner.name.colorize(:dark_gray)
-  ret = "#{runner} #{suite} #{name}"
+    suite = @testCase.suite.name.colorize(:white)
+    runner = @runner.name.colorize(:dark_gray)
+    ret = "#{runner} #{suite} #{name}"
 
-  # Add dots to fill the terminal horizontally
-  dots = ""
-  (TERMINAL_WIDTH - 6 - uncolored_len).times do |_|
-    dots += "."
-  end
-  ret += "#{dots.colorize(:dark_gray)}"
+    # Add dots to fill the terminal horizontally
+    dots = ""
+    (TERMINAL_WIDTH - 6 - uncolored_len).times do |_|
+      dots += "."
+    end
+    ret += "#{dots.colorize(:dark_gray)}"
 
-  # Add the pass/fail indicator
-  pass = @pass ? "PASS".colorize(:green) : "FAIL".colorize(:red)
-  puts(ret + "[#{pass}]")
+    # Add the pass/fail indicator
+    pass = @pass ? "PASS".colorize(:green) : "FAIL".colorize(:red)
+    puts(ret + "[#{pass}]")
 
-  return if @pass
+    return if @pass
 
-  # Show failure information
-  puts(("      " + @message.gsub("\n", "\n      ")).colorize(:dark_gray))
+    # Show failure information
+    puts(("      " + @message.gsub("\n", "\n      ")).colorize(:dark_gray))
   end
 end
 
