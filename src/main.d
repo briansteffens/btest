@@ -29,6 +29,7 @@ private const string CONFIG_RUNNERS_SETUP = "setup";
 private const string CONFIG_RUNNERS_RUN = "run";
 private const string CONFIG_PARALLEL_TESTS = "parallelize_tests";
 private const string CONFIG_PARALLEL_RUNNERS = "parallelize_runners";
+private const string CONFIG_TEST_RUNNERS = "runners";
 private const string CONFIG_TEST_CASES = "cases";
 private const string CONFIG_TEST_TEMPLATES = "templates";
 private const string CONFIG_TEST_CASES_STATUS = "status";
@@ -151,6 +152,20 @@ private class TestRunner {
   TestCase[] buildTest(string testFile) {
     auto config = readConfig(testFile);
 
+    bool shouldRun = true;
+    if (config.containsKey(CONFIG_TEST_RUNNERS)) {
+      shouldRun = false;
+      foreach (string runner; config[CONFIG_TEST_RUNNERS]) {
+        if (runner == this.name) {
+          shouldRun = true;
+        }
+      }
+    }
+
+    if (!shouldRun) {
+      return null;
+    }
+
     try {
       return this.loadCases(testFile, config);
     } catch (Exception e) {
@@ -229,9 +244,12 @@ private bool launchRunner(TestRunner runner) {
     // Weird that extension is not part of DirEntry struct
     if (d.name.endsWith(".yaml")) {
       auto test = runner.buildTest(d);
-      auto t = runner.run(test);
-      atomicOp!("+=")(passed, t[0]);
-      atomicOp!("+=")(total, t[1]);
+
+      if (test !is null) {
+        auto t = runner.run(test);
+        atomicOp!("+=")(passed, t[0]);
+        atomicOp!("+=")(total, t[1]);
+      }
     }
   }
 
