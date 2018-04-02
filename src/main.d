@@ -300,7 +300,7 @@ private bool launchRunner(TestRunner runner) {
       }
     }
 
-    writeln(format("%d of %d tests passed for runner: %s",
+    writeln(format("%d of %d tests passed for runner: %s\n",
                    passed, total, runner.name));
     return passed == total;
   } finally {
