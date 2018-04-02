@@ -34,6 +34,7 @@ private const string CONFIG_TEST_CASES = "cases";
 private const string CONFIG_TEST_TEMPLATES = "templates";
 private const string CONFIG_TEST_CASES_STATUS = "status";
 private const string CONFIG_TEST_CASES_STDOUT = "stdout";
+private const string CONFIG_TEST_CASES_STDOUT_CONTAINS = "stdout_contains";
 private const string CONFIG_TEST_CASES_NAME = "name";
 
 private Node readConfig(string file) {
@@ -57,15 +58,17 @@ private class TestCase {
   string name;
   int expectedStatus;
   string expectedStdout;
+  string expectedStdoutContains;
   string[string] keyValues;
   string[string] templates;
 
-  this(string testFile, string name, int expectedStatus,
-       string expectedStdout, string[string] keyValues, Node templates) {
+  this(string testFile, string name, int expectedStatus, string expectedStdout,
+       string expectedStdoutContains, string[string] keyValues, Node templates) {
     this.testFile = testFile;
     this.name = name;
     this.expectedStatus = expectedStatus;
     this.expectedStdout = expectedStdout;
+    this.expectedStdoutContains = expectedStdoutContains;
     this.keyValues = keyValues;
 
     Mustache mustache;
@@ -133,7 +136,7 @@ private class TestRunner {
     foreach (Node config; caseConfigs) {
       string[string] keyValues;
       int expectedStatus;
-      string expectedStdout, caseName;
+      string expectedStdout, expectedStdoutContains, caseName;
       foreach (string key, Node value; config) {
         switch (key) {
         case CONFIG_TEST_CASES_STATUS:
@@ -141,6 +144,9 @@ private class TestRunner {
           break;
         case CONFIG_TEST_CASES_STDOUT:
           expectedStdout = value.as!string;
+          break;
+        case CONFIG_TEST_CASES_STDOUT_CONTAINS:
+          expectedStdoutContains = value.as!string;
           break;
         case CONFIG_TEST_CASES_NAME:
           caseName = value.as!string;
@@ -150,8 +156,8 @@ private class TestRunner {
         }
       }
 
-      cases ~= new TestCase(testFile, caseName, expectedStatus,
-                            expectedStdout, keyValues, templates);
+      cases ~= new TestCase(testFile, caseName, expectedStatus, expectedStdout,
+                            expectedStdoutContains, keyValues, templates);
     }
     return cases;
   }
@@ -208,7 +214,8 @@ private class TestRunner {
         process = exec(this.cmd, testDir);
 
         if (process.status != c.expectedStatus ||
-            process.output != c.expectedStdout) {
+            process.output != c.expectedStdout ||
+            !process.output.canFind(c.expectedStdoutContains)) {
           ok = false;
         }
       }
