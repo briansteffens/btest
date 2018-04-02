@@ -17,7 +17,8 @@ alias Mustache = MustacheEngine!(string);
 
 private const string DEFAULT_TEST_PATH = "tests";
 private const string DEFAULT_TMP_ROOT = "/tmp/btest";
-private const bool DEFAULT_PARALLEL_RUNNERS = true;
+// Default to false until we synchronize output
+private const bool DEFAULT_PARALLEL_RUNNERS = false;
 private const bool DEFAULT_PARALLEL_TESTS = true;
 
 private const string CONFIG_FILENAME = "btest.yaml";
@@ -34,6 +35,7 @@ private const string CONFIG_TEST_CASES = "cases";
 private const string CONFIG_TEST_TEMPLATES = "templates";
 private const string CONFIG_TEST_CASES_STATUS = "status";
 private const string CONFIG_TEST_CASES_STDOUT = "stdout";
+private const string CONFIG_TEST_CASES_ARGS = "args";
 private const string CONFIG_TEST_CASES_STDOUT_CONTAINS = "stdout_contains";
 private const string CONFIG_TEST_CASES_NAME = "name";
 
@@ -57,19 +59,25 @@ private class TestCase {
   string testFile;
   string name;
   int expectedStatus;
+  string[] argsToPass;
   string expectedStdout;
   string expectedStdoutContains;
   string[string] keyValues;
   string[string] templates;
 
-  this(string testFile, string name, int expectedStatus, string expectedStdout,
-       string expectedStdoutContains, string[string] keyValues, Node templates) {
+  this(string testFile, string name, Node argsToPass, int expectedStatus,
+       string expectedStdout, string expectedStdoutContains,
+       string[string] keyValues, Node templates) {
     this.testFile = testFile;
     this.name = name;
     this.expectedStatus = expectedStatus;
     this.expectedStdout = expectedStdout;
     this.expectedStdoutContains = expectedStdoutContains;
     this.keyValues = keyValues;
+
+    foreach (string arg; argsToPass) {
+      this.argsToPass ~= arg;
+    }
 
     Mustache mustache;
     auto ctx = new Mustache.Context;
@@ -136,9 +144,13 @@ private class TestRunner {
     foreach (Node config; caseConfigs) {
       string[string] keyValues;
       int expectedStatus = -1;
+      Node argsToPass = Node(cast(Node[])[]);
       string expectedStdout, expectedStdoutContains, caseName;
       foreach (string key, Node value; config) {
         switch (key) {
+        case CONFIG_TEST_CASES_ARGS:
+          argsToPass = value;
+          break;
         case CONFIG_TEST_CASES_STATUS:
           expectedStatus = value.as!int;
           break;
@@ -156,8 +168,9 @@ private class TestRunner {
         }
       }
 
-      cases ~= new TestCase(testFile, caseName, expectedStatus, expectedStdout,
-                            expectedStdoutContains, keyValues, templates);
+      cases ~= new TestCase(testFile, caseName, argsToPass, expectedStatus,
+                            expectedStdout, expectedStdoutContains, keyValues,
+                            templates);
     }
     return cases;
   }
