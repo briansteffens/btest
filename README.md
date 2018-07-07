@@ -82,3 +82,10 @@ templates:
 ```bash
 btest
 ```
+
+### More examples
+
+Check out the `btest.yml` file and `tests` directory in:
+
+* [BShift](https://github.com/briansteffens/bshift)
+* [BSDScheme](https://github.com/eatonphil/bsdscheme)
