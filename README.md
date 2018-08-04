@@ -39,10 +39,10 @@ test_path: tests
 
 runners:
   - name: Run tests with cpython
-    run: python
+    run: python test.py
 
   - name: Run tests with pyp
-    run: pypy
+    run: pypy test.py
 ```
 
 Then create a tests directory and add a yaml file for each set of tests like so:
@@ -67,14 +67,13 @@ cases:
     status: 1
     stdout: |
       Traceback (most recent call last):
-        File "<string>", line 1, in <module>
-      ZeroDivisionError: integer division or modulo by zero
-
+        File "test.py", line 1, in <module>
+          4 / 0
+      ZeroDivisionError: division by zero
     denominator: 0
-
 templates:
   - test.py: |
-    4 / {{ denominator }}
+      4 / {{ denominator }}
 ```
 
 ### Run it
@@ -82,14 +81,24 @@ templates:
 Run all tests:
 
 ```bash
-btest
+$ btest
+tests/divide-by-zero.yaml
+[PASS] Should exit on divide by zero
+
+1 of 1 tests passed for runner: Run tests with cpython
+
 ```
 
 Run just a specific test file by name (assuming the test path root is `tests/`,
-this will run the tests in `tests/important_stuff.yaml`):
+this will run the tests in `tests/divide-by-zero.yaml`):
 
 ```bash
-btest -f important_stuff
+$ btest -f divide-by-zero
+tests/divide-by-zero.yaml
+[PASS] Should exit on divide by zero
+
+1 of 1 tests passed for runner: Run tests with cpython
+
 ```
 
 ### More examples
