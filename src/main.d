@@ -97,28 +97,24 @@ private class TestCase {
 }
 
 private class TestRunner {
-  string testRoot;
-  string tmpRoot;
+  Context context;
   string name;
   string[] setup;
   string cmd;
-  bool parallelize;
   string[] tmpDirs;
 
-  this(string testRoot, string tmpRoot, string name, string[] setup, string cmd, bool parallelize) {
-    this.testRoot = testRoot;
-    this.tmpRoot = tmpRoot;
+  this(Context context, string name, string[] setup, string cmd) {
+    this.context = context;
     this.name = name;
     this.setup = setup;
     this.cmd = cmd;
-    this.parallelize = parallelize;
   }
 
   private string getTmpDir(string testFile) {
     int i;
     while (true) {
       string fileWithoutExt = testFile[0 ..  testFile.length - ".yaml".length];
-      string tmpRoot = buildPath(tmpRoot, format("%d", i));
+      string tmpRoot = buildPath(context.tmpRoot, format("%d", i));
       string dir = buildPath(tmpRoot, name, fileWithoutExt);
       if (!exists(tmpRoot)) {
         tmpDirs ~= dir;
@@ -275,27 +271,24 @@ private bool launchRunner(TestRunner runner) {
   shared int passed;
   shared int total;
 
-  void handleFile(DirEntry d) {
-    // Weird that extension is not part of DirEntry struct
-    if (d.name.endsWith(".yaml")) {
-      auto test = runner.buildTest(d);
+  void handleFile(string testFile) {
+    auto test = runner.buildTest(testFile);
 
-      if (test !is null) {
-        auto t = runner.run(test);
-        atomicOp!("+=")(passed, t[0]);
-        atomicOp!("+=")(total, t[1]);
-      }
+    if (test !is null) {
+      auto t = runner.run(test);
+      atomicOp!("+=")(passed, t[0]);
+      atomicOp!("+=")(total, t[1]);
     }
   }
 
   try {
-    auto dFiles = dirEntries(runner.testRoot, SpanMode.depth);
-    if (runner.parallelize) {
-      foreach (d; parallel(dFiles)) {
+    auto testFiles = runner.context.testFiles;
+    if (runner.context.parallelize) {
+      foreach (d; parallel(testFiles)) {
         handleFile(d);
       }
     } else {
-      foreach (d; dFiles) {
+      foreach (d; testFiles) {
         handleFile(d);
       }
     }
@@ -329,24 +322,9 @@ private int launchRunners(TestRunner[] runners, bool parallelize) {
   return passed;
 }
 
-private TestRunner[] loadRunners(Node config) {
-  string tmpRoot = nodeGet(config,
-                           CONFIG_TMP_ROOT,
-                           Node(DEFAULT_TMP_ROOT)).as!string;
-  string testPath = nodeGet(config,
-                            CONFIG_TEST_PATH,
-                            Node(DEFAULT_TEST_PATH)).as!string;
-  auto testsInParallel = nodeGet(config,
-                                 CONFIG_PARALLEL_TESTS,
-                                 Node(DEFAULT_PARALLEL_TESTS)).as!bool;
-  auto runnerSettings = nodeGet(config, CONFIG_RUNNERS, Node(cast(Node[])[]));
-
-  if (!runnerSettings.length) {
-    throw new Exception("No runners provided.");
-  }
-
+private TestRunner[] loadRunners(Context context) {
   TestRunner[] runners;
-  foreach (Node runnerSetting; runnerSettings) {
+  foreach (Node runnerSetting; context.runnerSettings) {
     string name = runnerSetting[CONFIG_RUNNERS_NAME].as!string;
 
     string[] setup;
@@ -358,19 +336,118 @@ private TestRunner[] loadRunners(Node config) {
 
     string run = runnerSetting[CONFIG_RUNNERS_RUN].as!string;
 
-    runners ~= new TestRunner(testPath, tmpRoot, name, setup, run, testsInParallel);
+    runners ~= new TestRunner(context, name, setup, run);
   }
 
   return runners;
 }
 
-int main() {
+class CommandLineArgs {
+  string[] testNames;
+
+  this(string[] args) {
+    // Skip the first arg, it's the executable name.
+    int index = 1;
+
+    while (index < args.length) {
+      const string head = args[index];
+      const string[] tail = args[index+1..$];
+
+      switch (head)
+      {
+        // -f test_name
+        case "-f":
+          if (tail.length == 0) {
+            throw new Exception("Expected: a test name (no path or extension)");
+          }
+          testNames ~= tail[0];
+          index++;
+          break;
+        default:
+          throw new Exception(format("Unrecognized command line option %s", head));
+      }
+
+      index++;
+    }
+  }
+}
+
+// Combines a config file with command line arguments to produce all of the
+// options and settings related to a test run.
+class Context {
+  CommandLineArgs args;
+  Node config;
+
+  string tmpRoot;
+  string testRoot;
+  string[] testFiles;
+  bool parallelize;
+  Node runnerSettings;
+
+  this(CommandLineArgs args, Node config) {
+    this.args = args;
+    this.config = config;
+
+    setTestRoot();
+    setTestFiles();
+    setParallelize();
+    setTmpRoot();
+    setRunnerSettings();
+  }
+
+  private void setTestRoot() {
+    this.testRoot = nodeGet(config,
+                            CONFIG_TEST_PATH,
+                            Node(DEFAULT_TEST_PATH)).as!string;
+  }
+
+  private string[] testFilesOnDisk() {
+    auto entries = dirEntries(testRoot, SpanMode.depth);
+    auto filtered = filter!(e => e.name.endsWith(".yaml"))(entries);
+    return map!(e => e.name)(filtered).array;
+  }
+
+  private string[] testFilesFromArgs() {
+    return map!(f => buildPath(testRoot, f ~ ".yaml"))(args.testNames).array;
+  }
+
+  private void setTestFiles() {
+    if (args.testNames.length > 0) {
+      this.testFiles = testFilesFromArgs();
+    } else {
+      this.testFiles = testFilesOnDisk();
+    }
+  }
+
+  private void setParallelize() {
+    this.parallelize = nodeGet(config,
+                               CONFIG_PARALLEL_RUNNERS,
+                               Node(DEFAULT_PARALLEL_RUNNERS)).as!bool;
+  }
+
+  private void setTmpRoot() {
+    this.tmpRoot = nodeGet(config,
+                           CONFIG_TMP_ROOT,
+                           Node(DEFAULT_TMP_ROOT)).as!string;
+  }
+
+  private void setRunnerSettings() {
+    this.runnerSettings = nodeGet(config,
+                                  CONFIG_RUNNERS,
+                                  Node(cast(Node[])[]));
+
+    if (!this.runnerSettings.length) {
+      throw new Exception("No runners provided.");
+    }
+  }
+}
+
+int main(string[] _args) {
+  auto args = new CommandLineArgs(_args);
   auto config = readConfig(CONFIG_FILENAME);
-  const bool runnersInParallel = nodeGet(config,
-                                         CONFIG_PARALLEL_RUNNERS,
-                                         Node(DEFAULT_PARALLEL_RUNNERS)).as!bool;
-  auto runners = loadRunners(config);
-  const auto passed = launchRunners(runners, runnersInParallel);
+  auto context = new Context(args, config);
+  auto runners = loadRunners(context);
+  const auto passed = launchRunners(runners, context.parallelize);
 
   if (passed != runners.length) {
     writeln("All runners unsuccessful, tests failed.");

@@ -79,8 +79,17 @@ templates:
 
 ### Run it
 
+Run all tests:
+
 ```bash
 btest
+```
+
+Run just a specific test file by name (assuming the test path root is `tests/`,
+this will run the tests in `tests/important_stuff.yaml`):
+
+```bash
+btest -f important_stuff
 ```
 
 ### More examples
