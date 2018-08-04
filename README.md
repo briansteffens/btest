@@ -39,10 +39,10 @@ test_path: tests
 
 runners:
   - name: Run tests with cpython
-    run: python -c
+    run: python
 
   - name: Run tests with pyp
-    run: pypy -c
+    run: pypy
 ```
 
 Then create a tests directory and add a yaml file for each set of tests like so:
@@ -73,7 +73,7 @@ cases:
     denominator: 0
 
 templates:
-  test.py: |
+  - test.py: |
     4 / {{ denominator }}
 ```
 
